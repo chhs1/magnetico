@@ -4,8 +4,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/pkg/errors"
 	"net/url"
+
+	"github.com/pkg/errors"
 
 	"go.uber.org/zap"
 )
@@ -15,7 +16,7 @@ var NotImplementedError = errors.New("Function not implemented")
 type Database interface {
 	Engine() databaseEngine
 	DoesTorrentExist(infoHash []byte) (bool, error)
-	AddNewTorrent(infoHash []byte, name string, files []File) error
+	AddNewTorrent(infoHash []byte, name string, files []File, metadata []byte) error
 	Close() error
 
 	// GetNumberOfTorrents returns the number of torrents saved in the database. Might be an

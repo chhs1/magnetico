@@ -21,7 +21,8 @@ type Metadata struct {
 	TotalSize    uint64
 	DiscoveredOn int64
 	// Files must be populated for both single-file and multi-file torrents!
-	Files []persistence.File
+	Files    []persistence.File
+	Metadata []byte
 }
 
 type Sink struct {

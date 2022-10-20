@@ -76,7 +76,7 @@ func (db *postgresDatabase) DoesTorrentExist(infoHash []byte) (bool, error) {
 	return exists, nil
 }
 
-func (db *postgresDatabase) AddNewTorrent(infoHash []byte, name string, files []File) error {
+func (db *postgresDatabase) AddNewTorrent(infoHash []byte, name string, files []File, metadata []byte) error {
 	if !utf8.ValidString(name) {
 		zap.L().Warn(
 			"Ignoring a torrent whose name is not UTF-8 compliant.",
@@ -118,11 +118,12 @@ func (db *postgresDatabase) AddNewTorrent(infoHash []byte, name string, files []
 		INSERT INTO torrents (
 			info_hash,
 			name,
+			metadata,
 			total_size,
 			discovered_on
-		) VALUES ($1, $2, $3, $4)
+		) VALUES ($1, $2, $3, $4, $5)
 		RETURNING id;
-	`, infoHash, name, totalSize, time.Now().Unix()).Scan(&lastInsertId)
+	`, infoHash, name, metadata, totalSize, time.Now().Unix()).Scan(&lastInsertId)
 	if err != nil {
 		return errors.Wrap(err, "tx.QueryRow (INSERT INTO torrents)")
 	}
@@ -255,7 +256,64 @@ func (db *postgresDatabase) GetFiles(infoHash []byte) ([]File, error) {
 }
 
 func (db *postgresDatabase) GetStatistics(from string, n uint) (*Statistics, error) {
-	return nil, NotImplementedError
+	fromTime, gran, err := ParseISO8601(from)
+	if err != nil {
+		return nil, errors.Wrap(err, "parsing ISO8601 error")
+	}
+
+	var toTime time.Time
+	var timef string // time format: https://www.sqlite.org/lang_datefunc.html
+
+	switch gran {
+	case Year:
+		toTime = fromTime.AddDate(int(n), 0, 0)
+		timef = "YYYY"
+	case Month:
+		toTime = fromTime.AddDate(0, int(n), 0)
+		timef = "YYYY-mm"
+	case Week:
+		toTime = fromTime.AddDate(0, 0, int(n)*7)
+		timef = "YYYY-WW"
+	case Day:
+		toTime = fromTime.AddDate(0, 0, int(n))
+		timef = "YYYY-mm-dd"
+	case Hour:
+		toTime = fromTime.Add(time.Duration(n) * time.Hour)
+		timef = "YYYY-mm-dd\"T\"HH"
+	}
+
+	// TODO: make it faster!
+	rows, err := db.conn.Query(fmt.Sprintf(`
+	SELECT to_char(to_timestamp(discovered_on), '%s') AS dT, 
+		   sum(files.size) AS tS, 
+		   count(DISTINCT torrents.id) AS nD, 
+		   count(DISTINCT files.id) AS nF
+	FROM torrents, files
+	 WHERE torrents.id = files.torrent_id AND discovered_on >= $1 AND discovered_on <= $2
+	GROUP BY dt;`,
+		timef), fromTime.Unix(), toTime.Unix())
+	defer closeRows(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := NewStatistics()
+
+	for rows.Next() {
+		var dT string
+		var tS, nD, nF uint64
+		if err := rows.Scan(&dT, &tS, &nD, &nF); err != nil {
+			if err := rows.Close(); err != nil {
+				panic(err.Error())
+			}
+			return nil, err
+		}
+		stats.NDiscovered[dT] = nD
+		stats.TotalSize[dT] = tS
+		stats.NFiles[dT] = nF
+	}
+
+	return stats, nil
 }
 
 func (db *postgresDatabase) setupDatabase() error {
@@ -297,6 +355,7 @@ func (db *postgresDatabase) setupDatabase() error {
 			id             INTEGER PRIMARY KEY DEFAULT nextval('seq_torrents_id'),
 			info_hash      bytea NOT NULL UNIQUE,
 			name           TEXT NOT NULL,
+			metadata       bytea NOT NULL,
 			total_size     BIGINT NOT NULL CHECK(total_size > 0),
 			discovered_on  INTEGER NOT NULL CHECK(discovered_on > 0)
 		);

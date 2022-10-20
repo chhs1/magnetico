@@ -29,7 +29,7 @@ docker_logs:
 	docker-compose logs -ft --tail=10
 
 image-magneticod:
-	docker build -t boramalper/magneticod -f Dockerfile.magneticod .
+	docker build -t chhs1/magneticod -f Dockerfile.magneticod .
 
 image-magneticow:
 	docker build -t boramalper/magneticow -f Dockerfile.magneticow .

@@ -3,10 +3,11 @@ package persistence
 import (
 	"encoding/hex"
 	"encoding/json"
-	"go.uber.org/zap"
 	"net/url"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/iwanbk/gobeanstalk"
 	"github.com/pkg/errors"
@@ -52,7 +53,7 @@ func (s *beanstalkd) DoesTorrentExist(infoHash []byte) (bool, error) {
 	return false, nil
 }
 
-func (s *beanstalkd) AddNewTorrent(infoHash []byte, name string, files []File) error {
+func (s *beanstalkd) AddNewTorrent(infoHash []byte, name string, files []File, metadata []byte) error {
 	payloadJson, err := json.Marshal(SimpleTorrentSummary{
 		InfoHash: hex.EncodeToString(infoHash),
 		Name:     name,

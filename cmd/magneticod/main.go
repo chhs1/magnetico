@@ -115,7 +115,7 @@ func main() {
 			}
 
 		case md := <-metadataSink.Drain():
-			if err := database.AddNewTorrent(md.InfoHash, md.Name, md.Files); err != nil {
+			if err := database.AddNewTorrent(md.InfoHash, md.Name, md.Files, md.Metadata); err != nil {
 				zap.L().Fatal("Could not add new torrent to the database",
 					util.HexField("infohash", md.InfoHash), zap.Error(err))
 			}

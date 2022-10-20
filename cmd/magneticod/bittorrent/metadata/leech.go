@@ -427,6 +427,7 @@ func (l *Leech) Do(deadline time.Time) {
 		TotalSize:    totalSize,
 		DiscoveredOn: time.Now().Unix(),
 		Files:        files,
+		Metadata:     l.metadata,
 	})
 }
 

@@ -2,18 +2,37 @@ version: "2"
 
 services:
   magneticod:
-    image: boramalper/magneticod:latest
+    image: chhs1/magneticod:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.magneticod
     volumes:
       - ${MAGNETICOD_DATA}:/root/.local/share/magneticod
       - ${MAGNETICOD_CONFIG}:/root/.config/magneticod
-    network_mode: "host"
     command:
       - "--indexer-addr=0.0.0.0:1212"
+      - "--database=postgres://postgres:password@database:5432/postgres?sslmode=disable"
+    links:
+      - database
+    ports:
+      - "1212:1212"
 
   magneticow:
     image: boramalper/magneticow:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.magneticow
     volumes:
       - ${MAGNETICOD_DATA}:/root/.local/share/magneticod
       - ${MAGNETICOW_CONFIG}:/root/.config/magneticow
     ports:
       - "8080:8080"
+    command: 
+      - "--database=postgres://postgres:password@master:5432/postgres?sslmode=disable"
+
+  database:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
