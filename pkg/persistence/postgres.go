@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"text/template"
 	"time"
 	"unicode/utf8"
 
@@ -123,7 +124,7 @@ func (db *postgresDatabase) AddNewTorrent(infoHash []byte, name string, files []
 			discovered_on
 		) VALUES ($1, $2, $3, $4, $5)
 		RETURNING id;
-	`, infoHash, name, metadata, totalSize, time.Now().Unix()).Scan(&lastInsertId)
+	`, infoHash, name, metadata, totalSize, time.Now()).Scan(&lastInsertId)
 	if err != nil {
 		return errors.Wrap(err, "tx.QueryRow (INSERT INTO torrents)")
 	}
@@ -198,7 +199,91 @@ func (db *postgresDatabase) QueryTorrents(
 	lastOrderedValue *float64,
 	lastID *uint64,
 ) ([]TorrentMetadata, error) {
-	return nil, NotImplementedError
+	if query == "" && orderBy == ByRelevance {
+		return nil, fmt.Errorf("torrents cannot be ordered by relevance when the query is empty")
+	}
+	if (lastOrderedValue == nil) != (lastID == nil) {
+		return nil, fmt.Errorf("lastOrderedValue and lastID should be supplied together, if supplied")
+	}
+
+	doJoin := query != ""
+	firstPage := lastID == nil
+
+	// executeTemplate is used to prepare the SQL query, WITH PLACEHOLDERS FOR USER INPUT.
+	sqlQuery := executeTemplate(`
+    		SELECT id
+                 , info_hash
+    			 , name
+    			 , total_size
+    			 , discovered_on
+    			 , (SELECT COUNT(*) FROM files WHERE torrents.id = files.torrent_id) AS n_files
+    		FROM torrents
+    	{{ if not .FirstPage }}
+    			  AND ( {{.OrderOn}}, id ) {{GTEorLTE .Ascending}} (?, ?) -- https://www.sqlite.org/rowvalue.html#row_value_comparisons
+    	{{ end }}
+    		ORDER BY {{.OrderOn}} {{AscOrDesc .Ascending}}, id {{AscOrDesc .Ascending}}
+    		LIMIT ?;
+    	`, struct {
+		DoJoin    bool
+		FirstPage bool
+		OrderOn   string
+		Ascending bool
+	}{
+		DoJoin:    doJoin,
+		FirstPage: firstPage,
+		OrderOn:   orderOn(orderBy),
+		Ascending: ascending,
+	}, template.FuncMap{
+		"GTEorLTE": func(ascending bool) string {
+			if ascending {
+				return ">"
+			} else {
+				return "<"
+			}
+		},
+		"AscOrDesc": func(ascending bool) string {
+			if ascending {
+				return "ASC"
+			} else {
+				return "DESC"
+			}
+		},
+	})
+	print(sqlQuery)
+
+	// Prepare query
+	queryArgs := make([]interface{}, 0)
+	queryArgs = append(queryArgs, epoch)
+	if !firstPage {
+		queryArgs = append(queryArgs, lastOrderedValue)
+		queryArgs = append(queryArgs, lastID)
+	}
+	queryArgs = append(queryArgs, limit)
+
+	rows, err := db.conn.Query(sqlQuery, queryArgs...)
+	defer closeRows(rows)
+	if err != nil {
+		return nil, errors.Wrap(err, "query error")
+	}
+
+	torrents := make([]TorrentMetadata, 0)
+	for rows.Next() {
+		var torrent TorrentMetadata
+		err = rows.Scan(
+			&torrent.ID,
+			&torrent.InfoHash,
+			&torrent.Name,
+			&torrent.Size,
+			&torrent.DiscoveredOn,
+			&torrent.NFiles,
+		)
+		if err != nil {
+			return nil, err
+		}
+		torrents = append(torrents, torrent)
+	}
+
+	return torrents, nil
 }
 
 func (db *postgresDatabase) GetTorrent(infoHash []byte) (*TorrentMetadata, error) {
@@ -357,7 +442,7 @@ func (db *postgresDatabase) setupDatabase() error {
 			name           TEXT NOT NULL,
 			metadata       bytea NOT NULL,
 			total_size     BIGINT NOT NULL CHECK(total_size > 0),
-			discovered_on  INTEGER NOT NULL CHECK(discovered_on > 0)
+			discovered_on  TIMESTAMP WITH TIME ZONE NOT NULL
 		);
 
 		-- Indexes for search sorting options

@@ -2,7 +2,7 @@ version: "2"
 
 services:
   magneticod:
-    image: chhs1/magneticod:latest
+    image: boramalper/magneticod:latest
     build:
       context: .
       dockerfile: Dockerfile.magneticod
@@ -27,7 +27,7 @@ services:
       - ${MAGNETICOW_CONFIG}:/root/.config/magneticow
     ports:
       - "8080:8080"
-    command: 
+    command:
       - "--database=postgres://postgres:password@master:5432/postgres?sslmode=disable"
 
   database:
